@@ -7,6 +7,8 @@ library(tidyr)
 library(reshape2)
 library(gridExtra)
 library(fastDummies)
+library(caret)
+library(tidyverse)
 
 universalbank_df <- read.csv('UniversalBank.csv', na = c('', 'NA', '?'), header = TRUE, encoding = 'UTF-8')
 class(universalbank_df)
@@ -86,6 +88,64 @@ heatmap(x = res, col = col, symm = TRUE, Rowv = NA)
 
 # drop multicolineared variable
 universalbank_df <- subset(universalbank_df, select = -c(Experience))
+
+### MODELING ###
+
+set.seed(123)
+
+universalbank_df <- universalbank_df %>%
+  mutate(Personal.Loan = dplyr::recode(Personal.Loan, '1' = "Yes", '0' = "No"))
+  
+  # spit dataset into train and test part in ratio 8:2 with respect to target variable
+index_train <- createDataPartition(universalbank_df$Personal.Loan, p = .8, list = FALSE)
+train <- universalbank_df[ index_train,]
+test  <- universalbank_df[-index_train,]
+
+sum(train$Personal.Loan == 1)
+sum(train$Personal.Loan == 0)
+
+sum(test$Personal.Loan == 1)
+sum(test$Personal.Loan == 0)
+
+
+library(stepPlr)
+
+fitControl <- trainControl(method = "cv",
+                          # repeats = 3,
+                           number = 5,
+                           summaryFunction = twoClassSummary, 
+                           classProbs = T,
+                           savePredictions = T)
+
+plr_grid <- expand.grid(
+  cp = c("aic", "bic"),
+  lambda = c(1e+02, 1e+01, 0e+00, 1e-01, 1e-02, 1e-03)
+)
+
+plr_fit <- train(Personal.Loan ~ ., data = train, 
+                 method = "plr", 
+                 trControl = fitControl,
+                 tuneGrid = plr_grid,
+                 preProc = c("scale")
+                 )
+plr_fit
+
+ggplot(plr_fit)
+
+plr_predicted_class <- predict(plr_fit, newdata = test)
+str(plr_predicted_class)
+
+plr_predicted_proba <- predict(plr_fit, newdata = test, type = "prob")
+head(plr_predicted_proba)
+
+confusionMatrix(data = plr_predicted_class, test$Personal.Loan)
+
+library(MLeval)
+
+plr_predicted_proba$obs <- test$Personal.Loan
+plr_predicted_proba
+
+test1 <- evalm(plr_predicted_proba ,plots='r',rlinethick=0.8,fsize=8,bins=8)
 
 
 
