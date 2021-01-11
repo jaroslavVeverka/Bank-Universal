@@ -6,6 +6,7 @@ library(dlookr)
 library(tidyr)
 library(reshape2)
 library(gridExtra)
+library(fastDummies)
 
 universalbank_df <- read.csv('UniversalBank.csv', na = c('', 'NA', '?'), header = TRUE, encoding = 'UTF-8')
 class(universalbank_df)
@@ -53,10 +54,38 @@ g11 <- ggplot(universalbank_df, aes(x = CreditCard, fill = Personal.Loan)) + geo
 
 grid.arrange(g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, nrow = 6, ncol=2, widths = c(2,2))
 
+# create dummies from categorical variables
+universalbank_df <- dummy_cols(universalbank_df, select_columns = c('Family', 'Education'), 
+                               remove_first_dummy = T,
+                               remove_selected_columns = T)
 
+universalbank_df <- universalbank_df %>%
+  mutate(Family_2 = as.factor(Family_2),
+         Family_3 = as.factor(Family_3),
+         Family_4 = as.factor(Family_4),
+         Education_2 = as.factor(Education_2),
+         Education_3 = as.factor(Education_3))
 
+str(universalbank_df)
+summary(universalbank_df)
 
+# distribution of targer variable
+ggplot(data = universalbank_df, aes(x = Personal.Loan, fill = Personal.Loan)) + geom_bar()
 
+sum(universalbank_df$Personal.Loan == 1)
+sum(universalbank_df$Personal.Loan == 0)
+
+# correlation matrix
+data <- as.matrix(select_if(universalbank_df, is.numeric))
+
+res <- cor(data)
+round(res, 2)
+
+col<- colorRampPalette(c("blue", "white", "red"))(20)
+heatmap(x = res, col = col, symm = TRUE, Rowv = NA)
+
+# drop multicolineared variable
+universalbank_df <- subset(universalbank_df, select = -c(Experience))
 
 
 
