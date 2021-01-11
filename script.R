@@ -53,6 +53,8 @@ g11 <- ggplot(universalbank_df, aes(x = CreditCard, fill = Personal.Loan)) + geo
 
 grid.arrange(g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, nrow = 6, ncol=2, widths = c(2,2))
 
+pokus <- 'pokus'
+
 
 
 
