@@ -1,5 +1,5 @@
 ---
-title: "UniversalBank_reseni"
+title: 'Úloha predikce poskytnutí úvěru bankovním klientům'
 output: html_document
 ---
 
@@ -7,22 +7,207 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+Cílem práce je sestavení různých modelů metod ML pro účely predikce poskytnutí bankovního úvěru klientům.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Pro tento účel je použit dataset obsahující údaje o bankovních klientech ve vztahu ke skutečnosti, zda jim byl poskytnut úvěr či nikoli. Data pocházejí z https://www.kaggle.com/sriharipramod/bank-loan-classification.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+## Načtení a prvotní seznámení s daty
 
-```{r cars}
-summary(cars)
+V rámci této fáze projektu dochází k načtení výchozích dat a prvotnímu seznámení s daty.
+
+Import základních balíčků:
+
+```{r message=FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(dlookr)
+library(tidyr)
+library(reshape2)
+library(gridExtra)
+library(fastDummies)
+library(caret)
+library(tidyverse)
+library(cowplot)
 ```
 
-## Including Plots
+Načtení výchozích dat:
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+universalbank_df <- read.csv('UniversalBank.csv', na = c('', 'NA', '?'), header = TRUE, encoding = 'UTF-8')
+class(universalbank_df)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+### Základní porozumění datasetu
+
+Dimenze vstupní matice dat:
+
+```{r}
+dim(universalbank_df)
+```
+
+Datové typy atributů:
+
+```{r}
+str(universalbank_df)
+```
+
+Zobrazení prvních 5 řádků:
+
+```{r}
+head(universalbank_df)
+```
+
+Zobrazení posledních 5 řádků:
+
+```{r}
+tail(universalbank_df)
+```
+
+Názvy atributů:
+
+```{r}
+colnames(universalbank_df)
+```
+
+Základní statistické charakteristiky atributů:
+
+```{r}
+summary(universalbank_df)
+```
+
+Počet chybějících hodnot v datasetu:
+
+```{r}
+sum(is.na(universalbank_df))
+```
+Počet chybějících hodnot podle atributů:
+
+```{r}
+sapply(universalbank_df, function(x) sum(is.na(x)))
+```
+
+## Vizualizace a předzpracování
+
+Nyní dochází k vizualizaci dat a k jejich předzpracování. Vzhledem k povaze dat nebylo možné provést všechny požadavky na předzpracování.
+
+Místo vytváření subsetu odstraněním řádků, které by vedlo ke zbytečné ztrátě informací a ke zkreslení reprezentativnosti datasetu, jsme raději přistoupili k odstraňování nevýznamných sloupců.
+
+Vytváření nových atributů dochází pomocí dichotomizace kategoriálních proměnných.
+
+Z povahy dat, kdy jeden záznam reprezentuje právě jednoho klienta, jsme nepřistoupili k aplikaci agregačních operátorů.
+
+Vzhledem k absenci chybějících hodnot není možné chybějící hodnoty jakýmkoli způsobem ošetřovat, nicméně jsou použity mechanismy pro jejich detekci.
+
+Změna datového typu u proměnných, které jsou kateroriální povahy, z *int* na *factor*. 
+
+```{r}
+universalbank_df <- universalbank_df %>%
+  mutate(Personal.Loan = as.factor(Personal.Loan),
+         Securities.Account = as.factor(Securities.Account),
+         CD.Account = as.factor(CD.Account),
+         Online = as.factor(Online),
+         CreditCard = as.factor(CreditCard),
+         Family = as.factor(Family),
+         Education = as.factor(Education))
+
+str(universalbank_df)
+```
+
+Odstranění z hlediska úlohy bezvýznamných atributů *ZIP.Code* a *ID*:
+
+```{r}
+universalbank_df <- universalbank_df %>%
+  select(Age, Experience, Income, Family, CCAvg, Education, Mortgage,
+         Personal.Loan, Securities.Account, CD.Account, Online, CreditCard)
+```
+
+Histogramy jednotlivých atributů podmíněné cílovým atributem *Personal.Loan*:
+
+```{r,fig.align='center',out.extra='angle=90',fig.height=11, warning=FALSE}
+
+g1 <- ggplot(universalbank_df, aes(x = Age, fill = Personal.Loan)) + geom_histogram(binwidth=5)+ theme(legend.position="none")
+g2 <- ggplot(universalbank_df, aes(x = Experience, fill = Personal.Loan)) + geom_histogram(binwidth = 5)+ theme(legend.position="none")
+g3 <- ggplot(universalbank_df, aes(x = Income, fill = Personal.Loan)) + geom_histogram(binwidth = 5)+ theme(legend.position="none")
+g4 <- ggplot(universalbank_df, aes(x = Family, fill = Personal.Loan)) + geom_histogram(stat="count")+ theme(legend.position="none")
+g5 <- ggplot(universalbank_df, aes(x = CCAvg, fill = Personal.Loan)) + geom_histogram(binwidth = 5)+ theme(legend.position="none")
+g6 <- ggplot(universalbank_df, aes(x = Education , fill = Personal.Loan)) + geom_histogram(stat="count")+ theme(legend.position="none")
+g7 <- ggplot(universalbank_df, aes(x = Mortgage, fill = Personal.Loan)) + geom_histogram(binwidth = 5)+ theme(legend.position="none")
+g8 <- ggplot(universalbank_df, aes(x = Securities.Account, fill = Personal.Loan)) + geom_histogram(stat="count")+ theme(legend.position="none")
+g9 <- ggplot(universalbank_df, aes(x = CD.Account, fill = Personal.Loan)) + geom_histogram(stat="count")+ theme(legend.position="none")
+g10 <- ggplot(universalbank_df, aes(x = Online, fill = Personal.Loan)) + geom_histogram(stat="count")+ theme(legend.position="none")
+g11 <- ggplot(universalbank_df, aes(x = CreditCard, fill = Personal.Loan)) + geom_histogram(stat="count")+ theme(legend.position="none")
+
+grid.arrange(g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, nrow = 6, ncol=2, widths = c(2,2))
+```
+
+Histogram cílového atributu *Personal.Loan*:
+
+```{r, fig.align='center',fig.height=2, fig.width=4}
+ggplot(data = universalbank_df, aes(x = Personal.Loan, fill = Personal.Loan)) + geom_bar()
+```
+
+Počet záznamů v datasetu s hodnotou cílového atributu rovno 1, resp. Ano:
+
+```{r}
+sum(universalbank_df$Personal.Loan == 1)
+```
+
+Počet záznamů v datasetu s hodnotou cílového atributu rovno 0, resp. Ne:
+
+```{r}
+sum(universalbank_df$Personal.Loan == 0)
+```
+
+Z výše uvedených výstupů je patrné, že dataset je z hlediska cílového atributu nevyrovnaný.
+
+Korelační matice spojitých numerických atributů:
+
+```{r}
+data <- as.matrix(select_if(universalbank_df, is.numeric))
+
+res <- cor(data)
+round(res, 2)
+```
+
+Grafická reprezentace korelační matice:
+
+```{r, fig.align='center',fig.height=3, fig.width=5}
+col<- colorRampPalette(c("blue", "white", "red"))(20)
+heatmap(x = res, col = col, symm = TRUE, Rowv = NA)
+```
+
+Je patrné, že mezi atributy *Experience* a *Age* je téměř perfektní korelace. Data jsou tedy zatížena perfektní multikolinearitou, kterou odstraníme tím, že jednu z těchto proměnných vynecháme. Jmenovitě vynecháme proměnnou *Experience*.
+
+V případě neošetření perfektní multikolinearity v datech by byly negativně ovlivněny modely ve fázi trénování.
+
+Vynechání atributu *Experience*:
+
+```{r}
+universalbank_df <- subset(universalbank_df, select = -c(Experience))
+```
+
+Dichotomizace kategoriálních atributů o více než dvou hodnotách a jejich transformace na datový typ *factor*:
+
+```{r}
+universalbank_df <- dummy_cols(universalbank_df, select_columns = c('Family', 'Education'), 
+                               remove_first_dummy = T,
+                               remove_selected_columns = T)
+
+universalbank_df <- universalbank_df %>%
+  mutate(Family_2 = as.factor(Family_2),
+         Family_3 = as.factor(Family_3),
+         Family_4 = as.factor(Family_4),
+         Education_2 = as.factor(Education_2),
+         Education_3 = as.factor(Education_3))
+
+str(universalbank_df)
+```
+
+Dataset je připraven pro modelování.
+
+## Modelování
+
+
+
+

@@ -27,7 +27,9 @@ universalbank_df <- universalbank_df %>%
          Securities.Account = as.factor(Securities.Account),
          CD.Account = as.factor(CD.Account),
          Online = as.factor(Online),
-         CreditCard = as.factor(CreditCard))
+         CreditCard = as.factor(CreditCard),
+         Family = as.factor(Family),
+         Education = as.factor(Education))
 
 str(universalbank_df)
 summary(universalbank_df)
@@ -146,6 +148,49 @@ plr_predicted_proba$obs <- test$Personal.Loan
 plr_predicted_proba
 
 test1 <- evalm(plr_predicted_proba ,plots='r',rlinethick=0.8,fsize=8,bins=8)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
