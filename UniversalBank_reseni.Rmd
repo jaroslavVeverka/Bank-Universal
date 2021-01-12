@@ -216,7 +216,7 @@ V rámci každé metody je vytvořen model, který je je optimalizován z hledis
 
 Načtění potrebných balíčků ve fázi modelování:
 
-```{r message=FALSE, warning=FALSE}
+```{r message=FALSE, warning=FALSE }
 library(caret)
 library(stepPlr)
 library(randomForest)
