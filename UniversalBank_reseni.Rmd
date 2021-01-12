@@ -17,7 +17,7 @@ V rámci této fáze projektu dochází k načtení výchozích dat a prvotnímu
 
 Import základních balíčků:
 
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE}
 library(readr)
 library(dplyr)
 library(ggplot2)
@@ -216,7 +216,7 @@ V rámci každé metody je vytvořen model, který je je optimalizován z hledis
 
 Načtění potrebných balíčků ve fázi modelování:
 
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE }
 library(caret)
 library(stepPlr)
 library(randomForest)
