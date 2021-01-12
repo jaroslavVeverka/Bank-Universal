@@ -26,7 +26,6 @@ library(tidyr)
 library(reshape2)
 library(gridExtra)
 library(fastDummies)
-library(caret)
 library(tidyverse)
 library(cowplot)
 ```
@@ -207,6 +206,332 @@ str(universalbank_df)
 Dataset je připraven pro modelování.
 
 ## Modelování
+
+V této části dochází k vytvoření modelů následujících metod strojového učení:
+
+* Logistická regrese,
+* Random Forest.
+
+V rámci každé metody je vytvořen model, který je je optimalizován z hlediska hodnot vybraných hyperparametrů.
+
+Načtění potrebných balíčků ve fázi modelování:
+
+```{r message=FALSE}
+library(caret)
+library(stepPlr)
+library(randomForest)
+library(MLeval)
+```
+
+Nastavení *seed* pro reprodukovatenost a překódování hodnot cílového atributu: 
+
+```{r}
+universalbank_df <- universalbank_df %>%
+  mutate(Personal.Loan = dplyr::recode(Personal.Loan, '1' = "Yes", '0' = "No"))
+
+str(universalbank_df)
+```
+
+Rozdělení datasetu na trénovací a testovací část v poměru 80:20. Při dělení datasetu dochází k zachování stejného podílu hodnot cílového atributu v obou částech datasetu:
+
+```{r}
+set.seed(123)
+index_train <-
+  createDataPartition(universalbank_df$Personal.Loan,
+                      p = .8,
+                      list = FALSE)
+train <- universalbank_df[index_train, ]
+test  <- universalbank_df[-index_train, ]
+
+sum(train$Personal.Loan == 'Yes')
+sum(train$Personal.Loan == 'No')
+
+sum(test$Personal.Loan == 'Yes')
+sum(test$Personal.Loan == 'No')
+```
+
+### Logistická regrese
+
+V prvé řadě dochází k definování kontrolní funkce, která stanovuje parametry procesu učení modelu metody LR. V rámci trénování modelu metody LR je použita 10 násobná křížová validace. Optimální nastavení hyperparamerů je hledáno pomocí *grid search*: 
+
+```{r}
+fitControl <- trainControl(
+  method = "cv",
+  number = 10,
+  summaryFunction = twoClassSummary,
+  classProbs = T,
+  savePredictions = T,
+  search = 'grid'
+)
+```
+
+Definování prostoru laděných hyperparametrů metody LR v rámci křížové validace:
+
+```{r}
+plr_grid <- expand.grid(cp = c('aic', 'bic'),
+                        lambda = c(0.0001, 0.001, 0.01, 0.1, 1, 10, 100))
+```
+
+Funkce řídící proces učení. Agreguje v sobě:
+
+* data, na kterých probíhá proces učení,
+* použitou metodu ML (Penalized Logistic Regression),
+* parametry procesu učení (10x cross validace, grid search),
+* kroky predzpracovnání dat (centrování, normalizace),
+* prostor laděných hyperparametrů použité metody ML (cp, lambda),
+* evaluační metrika (ROC).
+
+```{r}
+set.seed(123)
+
+plr_fit <- train(
+  Personal.Loan ~ .,
+  data = train,
+  method = "plr",
+  trControl = fitControl,
+  preProc = c("center", "scale"),
+  tuneGrid = plr_grid,
+  metric = "ROC"
+)
+
+plr_fit
+```
+
+Následuje vizualizace výsledků křížové validace na trénovacích datech. Graf zobrazuje hodnotu evalační metriky pro jednotlivá nastavení hyperparametrů modelu metody LR v rámci křížové validace: 
+
+```{r, fig.align='center',fig.height=3, fig.width=5}
+ggplot(plr_fit)
+```
+
+Na základě, jak výpisu výsledků křížové validace, tak následné vizualizace, lze konstatovat, že model metody LR s *lambda = 10*  a *cp = aic* dosahuje v rámci křízové validace na testovací části trénovacích dat nejlepších predikčních schopností. Hodnota evaluační metriky *ROC* dosahuje u modelu s tímto nastavením hyperparametrů nejvyšší hodnoty. Tento model LR lze považovat za optimální v hyperparametech.
+
+Nyní se v hyperparametrech optimální model LR použije pro predikci na testovacím datasetu.
+
+```{r}
+plr_predicted_class <- predict(plr_fit, newdata = test)
+str(plr_predicted_class)
+```
+
+Natrénovaný model LR umožňuje predikovat pravděpodobnost příslušnosti testovacích záznamů k jednotlivým třídám cílového atributu:
+
+```{r}
+plr_predicted_proba <- predict(plr_fit, newdata = test, type = "prob")
+head(plr_predicted_proba)
+```
+
+Za účelem zhodnocení predikčních schopností modelu LR na testovacích datech si necháme zobrazit *matici záměn* včetně dopočítaných evaluačních metrik.
+
+```{r}
+confusionMatrix(data = plr_predicted_class, test$Personal.Loan)
+```
+
+Výše uvedeného výpisu lze mimo jiné vyčíst celkovou správnost klasifikace. Celková správnost klasifikace na testovacích datech dosahuje hodnoty 0.949. Model správně klasifikoval 95 % testovacích dat.
+
+Kromě klasického vyhodnocení pomocí výše uvedených metrik je možné použít i evaluaci založenou na komplexnějších metrikách reprezentovaných křivkou. Jmenovitě jsou použity následující komplexnější metriky:
+
+* ROC křivka,
+* křivka kumulativních zisků.
+
+```{r, message=FALSE, fig.align='center',fig.height=6, fig.width=6}
+plr_predicted_proba$obs <- test$Personal.Loan
+
+roc_curve_lr <- evalm(plr_predicted_proba ,plots='r',rlinethick=0.8,fsize=8,bins=8)
+```
+
+
+ROC křivka dává v souvislost TP poměr a FP poměr. Čím je se průběh křivky blíží levému hornímu rohu, tím je vyšší poměr TP (podíl správně klasifikovaných pozitivních případů na všech pozitivních případech) vázán s nižším FP poměrem (podíl špatně klasifikovaných negativních případů na všech negativních případech).
+
+```{r, echo=FALSE}
+cumu_chart <- function(Y_test, test_probs,k)
+{
+  comb_data = data.frame(test_probs, as.factor(Y_test),as.numeric(test_probs > 0.5))
+  ordered_data = comb_data[order(-test_probs),]
+  names(ordered_data) = c("test_probs", "Y_test", "Y_pred")
+  
+  #Probability cutoff vector
+  cutoff.vector <- seq(0,1,length=1000)
+  
+  #Create empty vector for cumugains
+  p_CumGain <- numeric(length(cutoff.vector))
+  #Create an empty vector for proportion of data
+  p_data <- numeric(length(cutoff.vector))
+  
+  for (i in 1:length(cutoff.vector))
+  {
+    p_CumGain[i] <- sum(ordered_data$test_probs > cutoff.vector[i] & ordered_data$Y_test == 1)/sum(ordered_data$Y_test==1)
+    p_data[i] <- (sum(ordered_data$test_probs > cutoff.vector[i] & ordered_data$Y_test == 1) + sum(ordered_data$test_probs > cutoff.vector[i] & ordered_data$Y_test == 0))/500
+  }
+  plot(p_data, p_CumGain, type = "l",
+       xlim = c(0,1),
+       ylim = c(0,1),
+       xlab = "Proportion of Targeted Records",
+       ylab = "Proportion of Cumulative Gains",
+       col = "blue",
+       main = paste0("Cumulative Gains Chart ",k))
+  abline(0, 1, lty=2, col = "red")
+  
+}
+```
+
+Křivka kumulativních zisků dává v souvislost procento případů s modelem predikovanou nejvyšší pravděpodobností a procento všech případů dané třídy. Za učelem její kontrukce je použita custom funkce *cumu_chart*, která je k dispozici ve zdrojovém kódu tohoto souboru. Zde je funkce přímo použita pro konstrukci křivky:
+
+```{r, fig.align='center',fig.height=5, fig.width=5}
+test_cgc <- test %>%
+  mutate(Personal.Loan = dplyr::recode(Personal.Loan, 'Yes' = 1, 'No' = 0))
+
+cumu_chart(test_cgc$Personal.Loan, plr_predicted_proba$Yes, "Logistic Regression")
+```
+
+Z grafu lze vyčíst, že pokud vezmeme 20 procent případů, kterým model predikoval nejvyšší pravděpodobnost úspěchu, tak se v této množině nachází přibližně 75 procent všech pozitivních případů.
+
+
+## Random Forest
+
+Podobně jako v metody LR dochází v prvé řadě k definování kontrolní funkce učení. Ta je téměř totožná s kontrolní funkcí u metody LR. Jediným rozdílem je to, že v případě RF je pro hledání optimálního nastavení hyperparametru *mtry* použit *random search* místo *grid search*: 
+
+```{r}
+fitControl <- trainControl(
+  method = "cv",
+  number = 10,
+  classProbs = T,
+  savePredictions = T,
+  search = 'random'
+)
+```
+
+Funkce řídící proces učení. Agreguje v sobě:
+
+* data, na kterých probíhá proces učení,
+* použitou metodu ML (Random Forest),
+* parametry procesu učení (10x cross validace, random search),
+* kroky predzpracovnání dat (centrování, normalizace),
+* počet prohledánání prostoru v rámci random search,
+* evaluační metrika (Accuracy).
+
+```{r}
+set.seed(123)
+
+rf_fit <- train(
+  Personal.Loan ~ .,
+  data = train,
+  method = "rf",
+  trControl = fitControl,
+  preProc = c("center", "scale"),
+  tuneLength = 6,
+  metric = 'Accuracy'
+)
+
+rf_fit
+```
+
+Následuje vizualizace výsledků křížové validace na trénovacích datech. Graf zobrazuje hodnotu evaluační metriky pro jednotlivá nastavení hyperparametru *mtry* modelu metody RF v rámci křížové validace: 
+
+```{r, fig.align='center',fig.height=3, fig.width=5}
+ggplot(rf_fit)
+```
+
+Na základě, jak výpisu výsledků křížové validace, tak následné vizualizace, lze konstatoval, že model metody RF s *mtry = 6* dosahuje v rámci křízové validace na testovací části trénovacích dat nejlepších predikčních schopností. Hodnota evaluační metriky *Accuracy* dosahuje u modelu s tímto nastavením hyperparametru nejvyšší hodnoty. Tento model RF lze považovat za optimální v hyperparametech.
+
+Nyní se v hyperparametrech optimální model RF použije pro predikci na testovacím datasetu.
+
+```{r}
+rf_predicted_class <- predict(rf_fit, newdata = test)
+str(rf_predicted_class)
+```
+
+Natrénovaný model RF umožňuje predikovat pravděpodobnost příslušnosti testovacích záznamů k jednotlivým třídám cílového atributu:
+
+```{r}
+rf_predicted_proba <- predict(rf_fit, newdata = test, type = "prob")
+head(rf_predicted_proba)
+```
+
+Za účelem zhodnocení predikčních schopností modelu RF na testovacích datech si necháme zobrazit *matici záměn* včetně dopočítaných evaluačních metrik.
+
+```{r}
+confusionMatrix(data = rf_predicted_class, test$Personal.Loan)
+```
+
+Výše uvedeného výpisu lze mimo jiné vyčíst celkovou správnost klasifikace. Celková správnost klasifikace na testovacích datech dosahuje hodnoty 0.985. Model správně klasifikoval 99 % testovacích dat. Správnost klasifikace testovacích dat u modelu RF je o 3 procentní body vyšší než u LR.
+
+Ke zhodnocení predikčních schopností modelu RF jsou opět použity následující komplexnější metriky:
+
+* ROC křivka.
+* křivka kumulativních zisků.
+
+```{r, message=FALSE, fig.align='center',fig.height=6, fig.width=6}
+rf_predicted_proba$obs <- test$Personal.Loan
+
+roc_curve_rf <-
+  evalm(
+    rf_predicted_proba ,
+    plots = 'r',
+    rlinethick = 0.8,
+    fsize = 8,
+    bins = 8
+  )
+```
+
+Ve srovnání s ROC křivkou u modelu LR je tato křivka blíže levému hornímu rohu, což značí, že model RF má lepší predikční schopnosti než model LR, a to z hlediska vztahu TP a FP poměru.
+
+```{r}
+cumu_chart(test_cgc$Personal.Loan, rf_predicted_proba$Yes, "Random Forest")
+```
+
+Z grafu lze vyčíst, že pokud vezmeme 20 procent případů, kterým model predikoval nejvyšší pravděpodobnost úspěchu, tak se v této množině nachází přibližně 95 procent všech pozitivních případů. To indikuje výrazně lepší predikční schopnosti modelu metody RF oproti LR.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
