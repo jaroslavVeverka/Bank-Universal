@@ -11,6 +11,8 @@ Cílem práce je sestavení různých modelů metod ML pro účely predikce posk
 
 Pro tento účel je použit dataset obsahující údaje o bankovních klientech ve vztahu ke skutečnosti, zda jim byl poskytnut úvěr či nikoli. Data pocházejí z https://www.kaggle.com/sriharipramod/bank-loan-classification.
 
+Práce je k dispozici také na GitHubu: https://github.com/jaroslavVeverka/Bank-Universal. 
+
 ## Načtení a prvotní seznámení s daty
 
 V rámci této fáze projektu dochází k načtení výchozích dat a prvotnímu seznámení s daty.
